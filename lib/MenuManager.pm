@@ -2,8 +2,19 @@ package MenuManager;
 use strict;
 use warnings;
 
-require Carp;
+use Menu;
+use MenuItem;
+use SubmenuItem;
+use Carp;
 
+# here possible 2 ways to refactor. Split MenuManager into MenuMnagaer
+# and SubmenuManager. This way is more correct from point of
+# SOLID. Second way is to leave menu and submenu management inside one
+# class. This way seems more correct for me.
+
+# Not sure if using Carp module is a good idea here. Maybe returning
+# errors is better way. But it is very common way to handle errors, so
+# let's leave it.
 
 sub new
 {
@@ -13,124 +24,94 @@ sub new
     my $self = {};
     bless $self, $class;
 
-    $self->{menu} = [];
+    my $menu = shift;
+
+    $self->{menu} = $menu || new Menu();
 
     return $self;
 }
 
-sub addMenu
+
+sub addMenuItemAfter
 {
     my $self = shift;
-    my (@menu) = @_;
+    my ($anchor, $menuItem) = @_;
 
-    while (@menu) {
-        my $root    = shift @menu;
-        my $submenu = shift @menu;
-        push(@{$self->{menu}}, $root, $submenu);
+    my $addPos = $self->{'menu'}->getMenuPosition($anchor);
+
+    if ($addPos == -1) {
+        Carp::croak("Menu anchor not found");
     }
 
-    return 1;
+    $self->{'menu'}->addMenuItem($menuItem, $addPos + 1);
+
+    return $self;
 }
 
-sub addMenuAfter
+
+sub addMenuItemBefore
 {
     my $self = shift;
-    my ($anchor, @menu) = @_;
+    my ($anchor, $menuItem) = @_;
 
-    $self->_addMenuInPosition('after', $anchor, @menu);
+    my $addPos = $self->{'menu'}->getMenuPosition($anchor);
 
-    return 1;
-}
-
-sub addMenuBefore
-{
-    my $self = shift;
-    my ($anchor, @menu) = @_;
-
-    $self->_addMenuInPosition('before', $anchor, @menu);
-
-    return 1;
-}
-
-sub _addMenuInPosition
-{
-    my $self = shift;
-    my ($type, $anchor, @menu) = @_;
-
-    my @old = @{$self->{menu}};
-    my @new;
-
-    my $added = 0;
-    for (my $i = 0; $i < @old; $i+=2) {
-        my $title = $old[$i];
-        my $menus = $old[$i+1];
-
-        push(@new, $title, $menus) if $type eq 'after';
-
-        if ($title eq $anchor) {
-            push(@new, @menu);
-            $added = 1;
-        }
-
-        push(@new, $title, $menus) if $type eq 'before';
+    if ($addPos == -1) {
+        Carp::croak("Menu anchor not found");
     }
-    Carp::croak("Anchor menu not found") unless $added;
 
-    $self->{menu} = \@new;
+    $self->{'menu'}->addMenuItem($menuItem, $addPos);
 
-    return 1;
+    return $self;
 }
 
-sub addSubmenuBefore
+
+sub addSubmenuItemBefore
 {
     my $self = shift;
-    my ($anchor, $subanchor, @new_submenu) = @_;
+    my ($anchor, $subanchor, $newSubmenu) = @_;
 
-    $self->_addSubmenuInPosition('before', $anchor, $subanchor, @new_submenu);
+    my $addPath = $self->_getSubmenuPath($anchor, $subanchor);
+    $addPath->{'menu'}->addMenuItem($newSubmenu, $addPath->{'pos'});
 
-    return 1;
+    return $self;
 }
 
-sub addSubmenuAfter
+
+
+sub addSubmenuItemAfter
 {
     my $self = shift;
-    my ($anchor, $subanchor, @new_submenu) = @_;
+    my ($anchor, $subanchor, $newSubmenu) = @_;
 
-    $self->_addSubmenuInPosition('after', $anchor, $subanchor, @new_submenu);
+    my $addPath = $self->_getSubmenuPath($anchor, $subanchor);
+    $addPath->{'menu'}->addMenuItem($newSubmenu, $addPath->{'pos'} + 1);
 
-    return 1;
+    return $self;
 }
 
-sub _addSubmenuInPosition
-{
+
+sub _getSubmenuPath {
     my $self = shift;
-    my ($type, $anchor, $subanchor, @new_submenu) = @_;
+    my ($anchor, $subanchor) = @_;
 
-    my $found_anchor = 0;
-    my $found_subanchor = 0;
-    for (my $i = 0; $i < @{$self->{menu}}; $i+=2) {
-        my $title   = $self->{menu}->[$i];
-        my $submenu = $self->{menu}->[$i+1];
+    my $menuAddPos = $self->{'menu'}->getMenuPosition($anchor);
 
-        if ($title eq $anchor) {
-            $found_anchor = 1;
-            my @old_items = @{$submenu};
-            my @new_items;
-            for my $item (@old_items) {
-                push(@new_items, $item) if $type eq 'after';
-                if ($item->{title} eq $subanchor) {
-                    $found_subanchor = 1;
-                    push(@new_items, @new_submenu);
-                }
-                push(@new_items, $item) if $type eq 'before';
-            }
-            $self->{menu}->[$i+1] = \@new_items;
-        }
+    if ($menuAddPos == -1) {
+        Carp::croak('Anchor not found');
     }
-    Carp::croak("Anchor menu not found") unless $found_anchor;
-    Carp::croak("Anchor submenu not found") unless $found_subanchor;
 
-    return 1;
+    my $menuItem = $self->{'menu'}->getMenuByPosition($menuAddPos);
+    my $submenuAddPos = $menuItem->getMenuPosition($subanchor);
+
+    if ($submenuAddPos == -1) {
+        Carp::croak('Subanchor not found');
+    }
+
+    return {
+        "menu" => $menuItem,
+        "pos"  =>$submenuAddPos
+    };
 }
 
 
@@ -138,14 +119,8 @@ sub getMenu
 {
     my $self = shift;
 
-    my @menu;
-    for (my $i = 0; $i < @{$self->{menu}}; $i+=2) {
-        my $title   = $self->{menu}->[$i];
-        my $submenu = $self->{menu}->[$i+1];
-        push(@menu, { title => $title, url => '', submenu => $submenu });
-    }
+    return $self->{'menu'};
 
-    return @menu;
 }
 
 1;

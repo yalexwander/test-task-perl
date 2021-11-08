@@ -1,8 +1,6 @@
 package TestCase;
 use strict;
 use warnings;
-
-use Test::Unit::TestCase;
 use base 'Test::Unit::TestCase';
 
 
